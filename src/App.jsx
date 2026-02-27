@@ -29,6 +29,24 @@ export default function App() {
   const chatEndRef = useRef(null);
   const inputRef = useRef(null);
   const [checked, setChecked] = useState({});
+  const [email, setEmail] = useState("");
+  const [emailStatus, setEmailStatus] = useState(""); // "", "sending", "success", "error"
+
+  const submitEmail = async () => {
+    if (!email.trim() || !email.includes("@")) return;
+    setEmailStatus("sending");
+    try {
+      await fetch("https://script.google.com/macros/s/AKfycbyUPPhVvaT7JDrBY8U3rkBMRiYmSWnacxqX6bDrIEkNwC3GsinlEp6l0Bf3JM2YLmCO/exec", {
+        method: "POST",
+        mode: "no-cors",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email.trim() }),
+      });
+      setEmailStatus("success");
+    } catch (e) {
+      setEmailStatus("error");
+    }
+  };
 
   useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [coachingHistory, loading]);
   useEffect(() => { if (step === STEPS.COACHING && !loading) inputRef.current?.focus(); }, [step, loading, coachingHistory]);
@@ -391,6 +409,41 @@ Respond ONLY with valid JSON, no markdown, no backticks, no explanation:
                     ))}
                   </div>
                 )}
+                {/* Lead Capture CTA */}
+                <div style={{ ...S.card, marginBottom: 14, background: "linear-gradient(135deg, #3D2E1F, #5A462C)", border: "none", textAlign: "center", padding: "32px 24px", animation: "fadeUp .5s ease .4s both" }}>
+                  <div style={{ fontSize: 32, marginBottom: 12 }}>🚀</div>
+                  <h3 style={{ fontFamily: "'Instrument Serif', serif", fontSize: 22, color: "white", marginBottom: 8, lineHeight: 1.3 }}>I built this app in 1 hour.<br />I don't write code.</h3>
+                  <p style={{ fontSize: 14, color: "rgba(255,255,255,.7)", lineHeight: 1.6, marginBottom: 20, maxWidth: 420, margin: "0 auto 20px" }}>
+                    Want to learn how to build and launch your own AI-powered apps — no coding required? Sign up and I'll show you exactly how.
+                  </p>
+                  {emailStatus === "success" ? (
+                    <div style={{ background: "rgba(255,255,255,.12)", borderRadius: 12, padding: "14px 20px", color: "#DEB887", fontWeight: 600, fontSize: 15 }}>
+                      ✓ You're in! Check your inbox soon.
+                    </div>
+                  ) : (
+                    <div style={{ display: "flex", gap: 8, maxWidth: 400, margin: "0 auto" }}>
+                      <input
+                        type="email"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === "Enter") submitEmail(); }}
+                        placeholder="Enter your email"
+                        style={{ flex: 1, padding: "12px 14px", borderRadius: 10, border: "1.5px solid rgba(255,255,255,.2)", background: "rgba(255,255,255,.1)", color: "white", fontSize: 14, fontFamily: "'DM Sans', sans-serif", outline: "none" }}
+                      />
+                      <button
+                        onClick={submitEmail}
+                        disabled={emailStatus === "sending" || !email.includes("@")}
+                        style={{ padding: "12px 20px", borderRadius: 10, border: "none", background: "#C4956A", color: "white", fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans', sans-serif", whiteSpace: "nowrap", opacity: emailStatus === "sending" || !email.includes("@") ? 0.5 : 1 }}
+                      >
+                        {emailStatus === "sending" ? "..." : "Sign Up"}
+                      </button>
+                    </div>
+                  )}
+                  {emailStatus === "error" && (
+                    <p style={{ color: "#F87171", fontSize: 13, marginTop: 8 }}>Something went wrong. Try again.</p>
+                  )}
+                </div>
+
                 <button className="btn" onClick={reset} style={{ ...S.backBtn, width: "100%", textAlign: "center", marginTop: 8 }}>← Start Over with New Goals</button>
               </div>
             )}
