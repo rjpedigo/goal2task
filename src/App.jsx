@@ -1,7 +1,6 @@
 import { useState, useRef, useEffect } from "react";
-import { callAI, PROVIDERS } from "./ai.js";
+import { callAI } from "./ai.js";
 
-// ─── LIFE AREAS ───
 const LIFE_AREAS = [
   { id: "career", icon: "💼", label: "Career & Work", desc: "Job, business, professional growth" },
   { id: "finance", icon: "💰", label: "Finance & Wealth", desc: "Income, saving, investing, debt" },
@@ -15,33 +14,6 @@ const STEPS = { AREA: 0, CURRENT: 1, DESIRED: 2, CONSTRAINTS: 3, COACHING: 4, PL
 const STEP_LABELS = ["Focus Area", "Current State", "Desired State", "Reality Check", "Coaching", "Action Plan"];
 
 export default function App() {
-  // ─── AI Config (persisted to localStorage) ───
-  const [aiConfig, setAiConfig] = useState(() => {
-    try {
-      const saved = localStorage.getItem("goal2task_config");
-      return saved ? JSON.parse(saved) : { provider: "lmstudio", apiKey: "", model: "", baseUrl: "" };
-    } catch { return { provider: "lmstudio", apiKey: "", model: "", baseUrl: "" }; }
-  });
-  const [showSettings, setShowSettings] = useState(false);
-  const [connectionStatus, setConnectionStatus] = useState("unknown"); // unknown, testing, ok, error
-
-  useEffect(() => {
-    localStorage.setItem("goal2task_config", JSON.stringify(aiConfig));
-  }, [aiConfig]);
-
-  // ─── Test connection ───
-  const testConnection = async () => {
-    setConnectionStatus("testing");
-    try {
-      await callAI("You are helpful. Respond with just: OK", "Test", aiConfig);
-      setConnectionStatus("ok");
-    } catch (e) {
-      console.error("Connection test failed:", e);
-      setConnectionStatus("error");
-    }
-  };
-
-  // ─── App State ───
   const [step, setStep] = useState(STEPS.AREA);
   const [area, setArea] = useState(null);
   const [currentState, setCurrentState] = useState("");
@@ -56,6 +28,7 @@ export default function App() {
   const [error, setError] = useState(null);
   const chatEndRef = useRef(null);
   const inputRef = useRef(null);
+  const [checked, setChecked] = useState({});
 
   useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [coachingHistory, loading]);
   useEffect(() => { if (step === STEPS.COACHING && !loading) inputRef.current?.focus(); }, [step, loading, coachingHistory]);
@@ -76,10 +49,9 @@ export default function App() {
   const aiCall = async (systemPrompt, userMessage) => {
     setError(null);
     try {
-      return await callAI(systemPrompt, userMessage, aiConfig);
+      return await callAI(systemPrompt, userMessage);
     } catch (e) {
-      const providerName = PROVIDERS[aiConfig.provider]?.name || aiConfig.provider;
-      setError(`Failed to reach ${providerName}. ${aiConfig.provider === "lmstudio" ? "Make sure LM Studio is running with a model loaded and the server started." : "Check your connection settings."}`);
+      setError("Something went wrong connecting to the AI. Please try again.");
       throw e;
     }
   };
@@ -103,7 +75,7 @@ Be warm but direct. Reference their specific situation. Keep response to 3-4 sho
       setCoachingHistory([{ role: "coach", text: response }]);
       setCoachingRound(1);
     } catch (e) {
-      setCoachingHistory([{ role: "coach", text: "I couldn't connect to the AI. Check your settings (gear icon) and make sure your provider is running." }]);
+      setCoachingHistory([{ role: "coach", text: "I had trouble connecting. Please try again in a moment." }]);
     }
     setLoading(false);
   };
@@ -134,7 +106,7 @@ Stay warm, direct. Reference what they just said. 2-3 short paragraphs max.`;
       setCoachingHistory([...updated, { role: "coach", text: response }]);
       setCoachingRound((r) => r + 1);
     } catch (e) {
-      setCoachingHistory([...updated, { role: "coach", text: "Lost connection to AI. Check settings or try generating the plan." }]);
+      setCoachingHistory([...updated, { role: "coach", text: "Lost connection. Try generating your plan or send again." }]);
     }
     setLoading(false);
   };
@@ -153,18 +125,17 @@ RULES:
 - Sequence tasks logically with dependencies
 - 3 milestones covering weeks 1-2, weeks 3-4, month 2-3
 
-Respond ONLY with valid JSON, no markdown, no backticks, no explanation before or after:
+Respond ONLY with valid JSON, no markdown, no backticks, no explanation:
 {"refined_goal":"The clarified specific goal","key_insight":"Most important realization from coaching","leverage_point":"The ONE thing creating most progress","milestones":[{"title":"Milestone name","timeframe":"Week 1-2","tasks":[{"task":"Extremely specific task","is_leverage":false,"time_needed":"45 min","when":"Monday evening"}]}],"obstacles":[{"obstacle":"What might go wrong","mitigation":"How to handle it"}],"weekly_commitment":"X hours across Y sessions"}`;
     try {
       const raw = await aiCall(sys, ctx);
-      // Try to extract JSON even if the model wraps it
       let jsonStr = raw;
       const jsonMatch = raw.match(/\{[\s\S]*\}/);
       if (jsonMatch) jsonStr = jsonMatch[0];
       setPlan(JSON.parse(jsonStr));
     } catch (e) {
       setPlan(null);
-      setCoachingHistory((h) => [...h, { role: "coach", text: "Had trouble generating the plan. The AI might need a different prompt format for your model. Try again or adjust settings." }]);
+      setCoachingHistory((h) => [...h, { role: "coach", text: "Had trouble generating the plan. Let's try again." }]);
       setStep(STEPS.COACHING);
     }
     setLoading(false);
@@ -177,10 +148,8 @@ Respond ONLY with valid JSON, no markdown, no backticks, no explanation before o
     setPlan(null); setLoading(false); setChecked({}); setError(null);
   };
 
-  const [checked, setChecked] = useState({});
   const toggleCheck = (mi, ti) => { const k = `${mi}-${ti}`; setChecked((p) => ({ ...p, [k]: !p[k] })); };
 
-  // ─── RENDER ───
   return (
     <div style={S.wrapper}>
       <style>{`
@@ -192,7 +161,6 @@ Respond ONLY with valid JSON, no markdown, no backticks, no explanation before o
         @keyframes shimmer{0%{background-position:-200% 0}100%{background-position:200% 0}}
         @keyframes dotPulse{0%,80%,100%{transform:scale(0)}40%{transform:scale(1)}}
         @keyframes spin{to{transform:rotate(360deg)}}
-        @keyframes slideDown{from{opacity:0;transform:translateY(-10px)}to{opacity:1;transform:translateY(0)}}
         textarea,input{font-family:'DM Sans',sans-serif}
         textarea:focus,input:focus{outline:none;border-color:#C4956A!important;box-shadow:0 0 0 3px rgba(196,149,106,.12)!important}
         textarea::placeholder,input::placeholder{color:#B8A898}
@@ -207,103 +175,24 @@ Respond ONLY with valid JSON, no markdown, no backticks, no explanation before o
         .coach-bubble{animation:fadeUp .4s ease both}.user-bubble{animation:fadeUp .3s ease both}
         .task-row{transition:background .15s ease;cursor:pointer}.task-row:hover{background:rgba(196,149,106,.04)}
         .checkbox{transition:all .15s ease;cursor:pointer}.checkbox:hover{border-color:#C4956A!important}
-        .settings-overlay{animation:fadeIn .2s ease}.settings-panel{animation:slideDown .3s ease both}
-        .provider-opt{transition:all .15s ease;cursor:pointer}
-        .provider-opt:hover{border-color:#C4956A!important}
-        .provider-opt.active{border-color:#C4956A!important;background:#FDF8F3!important}
       `}</style>
 
-      {/* ═══ SETTINGS PANEL ═══ */}
-      {showSettings && (
-        <div className="settings-overlay" onClick={() => setShowSettings(false)} style={S.overlay}>
-          <div className="settings-panel" onClick={(e) => e.stopPropagation()} style={S.settingsPanel}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
-              <h3 style={{ fontFamily: "'Instrument Serif', serif", fontSize: 22, color: "#3D2E1F" }}>AI Settings</h3>
-              <button onClick={() => setShowSettings(false)} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: "#8B7355", padding: 4 }}>✕</button>
-            </div>
-
-            <label style={S.label}>Provider</label>
-            <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 20 }}>
-              {Object.entries(PROVIDERS).map(([key, p]) => (
-                <div key={key} className={`provider-opt${aiConfig.provider === key ? " active" : ""}`}
-                  onClick={() => setAiConfig({ ...aiConfig, provider: key, model: "", baseUrl: "" })}
-                  style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderRadius: 10, border: "1.5px solid #E8DFD2", background: "white" }}>
-                  <div style={{ width: 16, height: 16, borderRadius: "50%", border: "2px solid", borderColor: aiConfig.provider === key ? "#C4956A" : "#D4C5B5", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                    {aiConfig.provider === key && <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#C4956A" }} />}
-                  </div>
-                  <div>
-                    <div style={{ fontSize: 14, fontWeight: 600, color: "#3D2E1F" }}>{p.name}</div>
-                    <div style={{ fontSize: 12, color: "#A8977F" }}>{p.needsKey ? "Requires API key" : "No API key needed — runs locally"}</div>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            {PROVIDERS[aiConfig.provider]?.needsKey && (
-              <div style={{ marginBottom: 16 }}>
-                <label style={S.label}>API Key</label>
-                <input type="password" value={aiConfig.apiKey} onChange={(e) => setAiConfig({ ...aiConfig, apiKey: e.target.value })}
-                  placeholder={`Enter your ${PROVIDERS[aiConfig.provider].name} API key`} style={S.input} />
-              </div>
-            )}
-
-            <div style={{ marginBottom: 16 }}>
-              <label style={S.label}>Model <span style={{ fontWeight: 400, color: "#A8977F" }}>(optional — leave blank for default)</span></label>
-              <input type="text" value={aiConfig.model} onChange={(e) => setAiConfig({ ...aiConfig, model: e.target.value })}
-                placeholder={PROVIDERS[aiConfig.provider]?.defaultModel || "default"} style={S.input} />
-            </div>
-
-            <div style={{ marginBottom: 20 }}>
-              <label style={S.label}>Server URL <span style={{ fontWeight: 400, color: "#A8977F" }}>(optional — override default)</span></label>
-              <input type="text" value={aiConfig.baseUrl} onChange={(e) => setAiConfig({ ...aiConfig, baseUrl: e.target.value })}
-                placeholder={PROVIDERS[aiConfig.provider]?.baseUrl || ""} style={S.input} />
-            </div>
-
-            <button className="btn" onClick={testConnection} style={{ ...S.nextBtn, background: connectionStatus === "ok" ? "#2D6A4F" : connectionStatus === "error" ? "#991B1B" : "linear-gradient(135deg,#5A462C,#3D2E1F)", color: "white", border: "none", marginBottom: 8 }}>
-              {connectionStatus === "testing" ? "Testing…" : connectionStatus === "ok" ? "✓ Connected!" : connectionStatus === "error" ? "✕ Failed — check settings" : "Test Connection"}
-            </button>
-
-            {aiConfig.provider === "lmstudio" && (
-              <div style={{ background: "#F8F3ED", borderRadius: 10, padding: "12px 14px", fontSize: 13, color: "#5A462C", lineHeight: 1.55 }}>
-                <strong>LM Studio setup:</strong><br />
-                1. Open LM Studio and load a model (Llama 3.1 8B+ recommended)<br />
-                2. Go to the Local Server tab<br />
-                3. Click "Start Server" (default port 1234)<br />
-                4. Come back here and click "Test Connection"
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
       <div style={S.container}>
-        {/* ─── HEADER ─── */}
         <header style={S.header}>
           <div style={S.logoRow}>
             <div style={S.logoMark}>
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#C4956A" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><path d="M8 12l3 3 5-5" /></svg>
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#C4956A" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 12l3 3 5-5"/></svg>
             </div>
             <span style={S.logoText}>Goal2Task</span>
-            <button onClick={() => setShowSettings(true)} title="AI Settings" style={{ background: "white", border: "1.5px solid #E8DFD2", borderRadius: 8, width: 34, height: 34, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", marginLeft: 8, fontSize: 16 }}>⚙️</button>
           </div>
-
-          {/* Connection indicator */}
-          <div style={{ fontSize: 12, color: "#A8977F", marginBottom: 14, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
-            <div style={{ width: 7, height: 7, borderRadius: "50%", background: connectionStatus === "ok" ? "#2D6A4F" : connectionStatus === "error" ? "#991B1B" : "#D4C5B5" }} />
-            {PROVIDERS[aiConfig.provider]?.name || "Unknown"}
-            {aiConfig.provider === "lmstudio" && connectionStatus !== "ok" && (
-              <span style={{ color: "#C4956A", cursor: "pointer", textDecoration: "underline" }} onClick={() => setShowSettings(true)}>setup</span>
-            )}
-          </div>
-
-          {/* Stepper */}
+          <p style={{ fontSize: 14, color: "#8B7355", marginBottom: 16 }}>AI-powered goal coaching — turn ambitions into action</p>
           <div style={S.stepper}>
             {STEP_LABELS.map((label, i) => {
               const active = i === step, done = i < step;
               return (
                 <div key={i} style={S.stepItem}>
                   <div style={{ ...S.stepDot, background: done ? "#C4956A" : active ? "#5A462C" : "#DDD4C6", transform: active ? "scale(1.35)" : "scale(1)" }}>
-                    {done && <svg width="8" height="8" viewBox="0 0 12 12" fill="none"><path d="M2.5 6L5 8.5L9.5 3.5" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>}
+                    {done && <svg width="8" height="8" viewBox="0 0 12 12" fill="none"><path d="M2.5 6L5 8.5L9.5 3.5" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>}
                   </div>
                   <span style={{ ...S.stepLabel, color: active ? "#3D2E1F" : done ? "#C4956A" : "#B8A898", fontWeight: active ? 600 : 400 }}>{label}</span>
                   {i < STEP_LABELS.length - 1 && <div style={S.stepLine} />}
@@ -313,15 +202,13 @@ Respond ONLY with valid JSON, no markdown, no backticks, no explanation before o
           </div>
         </header>
 
-        {/* Error banner */}
         {error && (
           <div style={{ background: "#FEF2F2", border: "1px solid #FECACA", borderRadius: 12, padding: "12px 16px", marginBottom: 16, fontSize: 14, color: "#991B1B", animation: "fadeUp .3s ease" }}>
             {error}
-            <span onClick={() => setShowSettings(true)} style={{ color: "#991B1B", fontWeight: 600, cursor: "pointer", textDecoration: "underline", marginLeft: 8 }}>Open Settings</span>
           </div>
         )}
 
-        {/* ═══ STEP 0: AREA ═══ */}
+        {/* STEP 0: AREA */}
         {step === STEPS.AREA && (
           <div style={{ animation: "fadeUp .4s ease both" }}>
             <div style={S.qBlock}><h2 style={S.qTitle}>What area of life do you want to focus on?</h2><p style={S.qSub}>Pick the one that feels most important right now.</p></div>
@@ -337,14 +224,14 @@ Respond ONLY with valid JSON, no markdown, no backticks, no explanation before o
           </div>
         )}
 
-        {/* ═══ STEP 1: CURRENT STATE ═══ */}
+        {/* STEP 1: CURRENT STATE */}
         {step === STEPS.CURRENT && (
           <div style={{ animation: "fadeUp .4s ease both" }}>
-            <div style={S.qBlock}><h2 style={S.qTitle}>Where are you right now?</h2><p style={S.qSub}>Be honest — the more specific, the better your plan. What does your current situation actually look like?</p></div>
+            <div style={S.qBlock}><h2 style={S.qTitle}>Where are you right now?</h2><p style={S.qSub}>Be honest — the more specific, the better your plan.</p></div>
             <div style={S.card}>
               <label style={S.label}>My current reality</label>
               <textarea value={currentState} onChange={(e) => setCurrentState(e.target.value)}
-                placeholder={area === "career" ? 'e.g. I\'m freelancing part-time, bringing in about $5K/month but inconsistent. My pipeline is thin...' : area === "finance" ? 'e.g. Making $80K/year, $15K savings, $8K credit card debt. No real investment strategy...' : area === "health" ? 'e.g. 30 lbs overweight, mostly sedentary, eating out 4-5 times a week...' : 'Describe your current situation — what\'s working, what isn\'t, how you feel about it...'}
+                placeholder={area === "career" ? "e.g. I'm freelancing part-time, inconsistent income, thin pipeline..." : area === "finance" ? "e.g. Making $80K/year, $15K savings, $8K debt..." : area === "health" ? "e.g. 30 lbs overweight, sedentary, eating out often..." : "Describe your current situation — what's working, what isn't..."}
                 style={S.textarea} rows={5} />
               <div style={S.charHint}>{currentState.length < 10 ? "Keep going — detail helps" : "✓ Good detail"}</div>
             </div>
@@ -355,14 +242,14 @@ Respond ONLY with valid JSON, no markdown, no backticks, no explanation before o
           </div>
         )}
 
-        {/* ═══ STEP 2: DESIRED STATE ═══ */}
+        {/* STEP 2: DESIRED STATE */}
         {step === STEPS.DESIRED && (
           <div style={{ animation: "fadeUp .4s ease both" }}>
-            <div style={S.qBlock}><h2 style={S.qTitle}>Where do you want to be?</h2><p style={S.qSub}>Paint a vivid picture. What does success look like in 3–6 months? Be specific — numbers, milestones, how you'll feel.</p></div>
+            <div style={S.qBlock}><h2 style={S.qTitle}>Where do you want to be?</h2><p style={S.qSub}>What does success look like in 3–6 months? Be specific — numbers, milestones, feelings.</p></div>
             <div style={S.card}>
               <label style={S.label}>My desired state</label>
               <textarea value={desiredState} onChange={(e) => setDesiredState(e.target.value)}
-                placeholder='e.g. Earning $10K/month consistently from consulting, with 3 active clients and a pipeline of 5+ warm leads...'
+                placeholder="e.g. Earning $10K/month consistently, 3 active clients, confident turning down low-value work..."
                 style={S.textarea} rows={5} />
               <div style={S.charHint}>{desiredState.length < 10 ? "Be specific — what does success look like?" : "✓ Clear vision"}</div>
             </div>
@@ -373,10 +260,10 @@ Respond ONLY with valid JSON, no markdown, no backticks, no explanation before o
           </div>
         )}
 
-        {/* ═══ STEP 3: CONSTRAINTS ═══ */}
+        {/* STEP 3: CONSTRAINTS */}
         {step === STEPS.CONSTRAINTS && (
           <div style={{ animation: "fadeUp .4s ease both" }}>
-            <div style={S.qBlock}><h2 style={S.qTitle}>Let's get realistic</h2><p style={S.qSub}>Goals fail when we ignore constraints. Let's make sure your plan fits your actual life.</p></div>
+            <div style={S.qBlock}><h2 style={S.qTitle}>Let's get realistic</h2><p style={S.qSub}>Plans fail when they ignore constraints. Let's fit this to your actual life.</p></div>
             <div style={S.card}>
               <div style={S.fieldGroup}>
                 <label style={S.label}>Hours per week you can dedicate</label>
@@ -388,7 +275,7 @@ Respond ONLY with valid JSON, no markdown, no backticks, no explanation before o
               </div>
               <div style={S.fieldGroup}>
                 <label style={S.label}>What's blocked you before?</label>
-                <textarea value={constraints.blockers} onChange={(e) => setConstraints({ ...constraints, blockers: e.target.value })} placeholder="e.g. I tend to over-research and never launch..." style={S.textarea} rows={3} />
+                <textarea value={constraints.blockers} onChange={(e) => setConstraints({ ...constraints, blockers: e.target.value })} placeholder="e.g. I over-research and never launch, low energy after work..." style={S.textarea} rows={3} />
               </div>
             </div>
             <div style={S.btnRow}>
@@ -398,12 +285,12 @@ Respond ONLY with valid JSON, no markdown, no backticks, no explanation before o
           </div>
         )}
 
-        {/* ═══ STEP 4: COACHING ═══ */}
+        {/* STEP 4: COACHING */}
         {step === STEPS.COACHING && (
           <div style={{ animation: "fadeUp .4s ease both" }}>
             <div style={S.qBlock}>
               <h2 style={S.qTitle}>Let's sharpen your plan</h2>
-              <p style={S.qSub}>{coachingRound < 3 ? `Round ${Math.min(coachingRound, 2)} of 2 — answering these makes a dramatically better plan.` : "Clear picture. Ready to build your plan."}</p>
+              <p style={S.qSub}>{coachingRound < 3 ? `Round ${Math.min(coachingRound, 2)} of 2 — your answers make the plan dramatically better.` : "Clear picture. Ready to build your plan."}</p>
             </div>
             <div style={S.chatContainer}>
               {coachingHistory.map((msg, i) => (
@@ -441,7 +328,7 @@ Respond ONLY with valid JSON, no markdown, no backticks, no explanation before o
           </div>
         )}
 
-        {/* ═══ STEP 5: PLAN ═══ */}
+        {/* STEP 5: PLAN */}
         {step === STEPS.PLAN && (
           <div>
             {loading && (
@@ -471,7 +358,7 @@ Respond ONLY with valid JSON, no markdown, no backticks, no explanation before o
                         return (
                           <div key={ti} className="task-row" onClick={() => toggleCheck(mi, ti)} style={S.taskRow}>
                             <div className="checkbox" style={{ ...S.chk, background: done ? "#5A462C" : "white", borderColor: done ? "#5A462C" : "#D4C5B5" }}>
-                              {done && <svg width="11" height="11" viewBox="0 0 12 12" fill="none"><path d="M2.5 6L5 8.5L9.5 3.5" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>}
+                              {done && <svg width="11" height="11" viewBox="0 0 12 12" fill="none"><path d="M2.5 6L5 8.5L9.5 3.5" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>}
                             </div>
                             <div style={{ flex: 1 }}>
                               <p style={{ fontSize: 14.5, color: "#3D2E1F", lineHeight: 1.5, textDecoration: done ? "line-through" : "none", opacity: done ? .5 : 1 }}>
@@ -518,7 +405,7 @@ const S = {
   wrapper: { minHeight: "100vh", background: "linear-gradient(170deg, #FDFAF5 0%, #F5EDE2 50%, #EDE3D5 100%)", fontFamily: "'DM Sans', sans-serif", padding: "32px 16px 80px" },
   container: { maxWidth: 620, margin: "0 auto" },
   header: { textAlign: "center", marginBottom: 24, animation: "fadeUp .5s ease both" },
-  logoRow: { display: "flex", alignItems: "center", justifyContent: "center", gap: 10, marginBottom: 10 },
+  logoRow: { display: "flex", alignItems: "center", justifyContent: "center", gap: 10, marginBottom: 6 },
   logoMark: { width: 40, height: 40, borderRadius: 11, background: "white", border: "1.5px solid rgba(196,149,106,.2)", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 2px 8px rgba(0,0,0,.04)" },
   logoText: { fontFamily: "'Instrument Serif', serif", fontSize: 28, color: "#3D2E1F", letterSpacing: "-.01em" },
   stepper: { display: "flex", justifyContent: "center", gap: 4, flexWrap: "wrap", alignItems: "center" },
@@ -526,8 +413,6 @@ const S = {
   stepDot: { width: 10, height: 10, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", transition: "all .3s ease", flexShrink: 0 },
   stepLabel: { fontSize: 11, letterSpacing: ".02em", transition: "all .3s ease", whiteSpace: "nowrap" },
   stepLine: { width: 12, height: 1, background: "#DDD4C6", marginLeft: 4 },
-  overlay: { position: "fixed", inset: 0, background: "rgba(0,0,0,.35)", zIndex: 1000, display: "flex", alignItems: "flex-start", justifyContent: "center", paddingTop: 60 },
-  settingsPanel: { background: "white", borderRadius: 20, padding: "28px 24px", width: "90%", maxWidth: 480, maxHeight: "80vh", overflowY: "auto", boxShadow: "0 16px 48px rgba(0,0,0,.15)" },
   qBlock: { marginBottom: 20 },
   qTitle: { fontFamily: "'Instrument Serif', serif", fontSize: 26, color: "#3D2E1F", marginBottom: 6, lineHeight: 1.2 },
   qSub: { fontSize: 14.5, color: "#8B7355", lineHeight: 1.55 },
